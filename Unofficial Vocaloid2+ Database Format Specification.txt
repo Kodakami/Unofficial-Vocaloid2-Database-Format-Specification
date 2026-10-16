@@ -1,0 +1,1201 @@
+# INFO
+Document Title: Unofficial Vocaloid2+ Database Format Specification
+Authors: Kodakami
+Revision Date: 2026-10-16
+
+Statement of Intent:
+    - Everything we've done has been out of sheer love of the game. Have mercy on us.
+    - This document shall never be complete.
+
+# NUMBERS
+    
+    - Decimal values are represented in expected decimal form. If they have a fractional potion, it appears after a decimal point (".").
+    
+    - Hexadecimal values are prefixed with "0x" when interpreted as a value without additional context, and are prefixed with "$" when interpreted as an exact address. No fractional hexadecimal values appear. Upper-case is preferred for digits A~F.
+    
+    - Binary values are prefixed with "0b" and may use underscores ("_") for visual spacing. Underscores do not affect the value in any way.
+
+
+# PRIMITIVE DATA TYPES
+
+UNKNOWN n (unknown value type, "n" bits):
+    C# Equivalent: byte[n]
+    An range of the provided length with an unidentified type. This usually exists because a range of bytes has only been observed with ambiguous bit patterns and no use-case has been identified.
+
+I16 (integer, 16-bit):
+    C# Equivalent: short
+    A 16-bit, little-endian integer value in 2's compliment. There are no known instances where a field value is distinguishable as unsigned.
+
+I32 (integer, 32-bit):
+    C# Equivalent: int
+    A 32-bit, little-endian integer value in 2's compliment. There are no known instances where a field value is distinguishable as unsigned.
+
+I64 (integer, 64-bit):
+    C# Equivalent: long
+    A 64-bit, little-endian integer value in 2's compliment. There are no known instances where a field value is distinguishable as unsigned. Commonly used for addresses or distances between addresses.
+
+F32 (floating-point, 32-bit):
+    C# Equivalent: float
+    A 32-bit, IEEE single-precision floating-point value.
+
+F64 (floating-point, 64-bit):
+    C# Equivalent: double
+    A 64-bit, IEEE double-precision floating-point value. Commonly used for time in seconds, or frequency in Hertz (Hz).
+
+BOOL (boolean):
+    C# Rough Equivalent: bool
+        (C# bool is serialized as 4 bytes by default, whereas this type is serialized as only 1 byte).
+    A single byte with value 0x0 or 0x1, where 0x0 represents "false" and 0x1 represents "true". Other values should be rejected.
+
+CHAR (character):
+    C# Rough Equivalent: char
+        (C# char may be used to represent characters which are longer than a single byte, whereas this type is exclusive to single-byte characters in ASCII format.)
+    An 8-bit text character following the ASCII encoding.
+
+FOURCC (four-character code):
+    C# Rough Equivalent: (char, char, char, char)
+        (a C# string is simpler in practice, but this type has no length value and no terminator)
+    A big-endian sequence of exactly four CHARs. Used primarily as chunk type indicators in the spirit of the RIFF/IFF format.
+
+FSTRING[n] (fixed-length string of length "n"):
+    C# Rough Equivalent: string
+        (C# string has a length based on the number of visible characters it has, whereas this type has a known, fixed length where unused space is zeroed out)
+    A big-endian sequence of CHARs with the provided length. Unused space (characters after the final one with any semantic meaning) are always 0x0 ("\0", null char).
+
+LPSTRING (length-prefixed string):
+    C# Equivalent: string
+    A big-endian sequence of CHARs preceeded by an I32 indicating its length (n, CHAR[n]).
+
+FARRAY<T>[N] (fixed-length array of length "n" of type "T"):
+    C# Equivalent: System.Array<T>
+    A big-endian sequence of objects with the provided length. Length may be a constant value, or determined by some other field.
+
+LPARRAY<T> (array of type "T"):
+    C# Equivalent: System.Array<T>
+    A big-endian sequence of objects preceeded by an I32 indicating its length. For all intents, (n, FARRAY<T>[n]).
+
+
+# TERMS
+
+- "the DDI"
+    - Full Name: (possibly) Digital Database Index
+    - The portion of the database contained in the ".ddi" file. Introduced in Vocaloid2 when the original DDB file was split into two. The DDI provides metadata about how Vocaloid Engine should use the contents of the DDB. It includes phoneme definitions and configurations, and mappings describing which DDB audio groups represent which articulation sequences, stationary phonemes, or vocal quality modulations.
+
+- "the DDB"
+    - Full Name: (possibly) Digital Database
+    - The portion of the database containined in the ".ddb" file. The DDB contains audio groups corresponding to each articulation, stationary phoneme, and growl recording used to synthesize the voice. Each audio group contains a sequence of spectral modeling synthesis (SMS) analysis frames (usually corresponding to 256 samples of audio), followed by the original PCM samples that were analyzed.
+    
+- "the VVD"
+    - Full Name: (possibly) Virtual Vocalist Data
+    - A small file with administrative/boilerplate information about a voicebank.
+
+- "Chunk":
+    - A section of data beginning with a "chunk header" (see Common Subchunks). Contains a FOURCC "chunk type" identifier, followed by an I32 "chunk size" value. The chunk size always includes the FOURCC (4 bytes) and the I32 (4 bytes) values. After reading a chunk's "chunk size" value, a binary reader can advance (chunkSize - 8) to reach the top of the next section of data outside the chunk. This concept is borrowed from the the RIFF format. The Vocaloid2+ database format has a few of these, which are holdovers from the much more RIFF-like Vocaloid1 database format.
+
+- "DDI block":
+    - A section of data beginning with a DDI Header. All DDI blocks are found only in the DDI.
+
+
+# COMMON STRUCTURES
+
+"Chunk Header"
+    - Found at the top of all chunks.
+    - Layout:
+        {
+            FOURCC;
+                - Name: FourCC
+                - The identifier for this type of chunk.
+            I32;
+                - Name: ChunkSize
+                - The size of this chunk in bytes, including this field and the previous one. Advancing a binary reader by this number minus 8 will skip the rest of this chunk.
+        }
+
+"DDI Header"
+    - Found at the top of all DDI blocks.
+    - Layout:
+        {
+            I64;
+                - Placeholder Name: I64_0
+                - [Undiscovered Use]
+                - Usually 0. Sometimes an address-like value. Sometimes -1.
+
+            FOURCC;
+                - Name: FourCC
+                - The identifier for this type of chunk.
+
+            I32;
+                - Placeholder Name: I32_12
+                - [Undiscovered Use]
+                - Many times in Vocaloid2 voicebanks, this is the distance to the next DDI header, but no true pattern has been observed. This value is always 0 for Vocaloid3+.
+
+            I32;
+                - Placeholder Name: I32_16
+                - [Undiscovered Use]
+                - Observed 0, and 1.
+
+            I32;
+                - Placeholder Name: I32_20
+                - [Undiscovered Use]
+                - Observed 0, and 1.
+        }
+
+
+# CHUNK TYPES
+
+"ENV "
+    - Type: "ENV "
+    - Full Name: Envelope
+    - Description: Reuseable block for envelopes (sequences of points that change over time). The semantic meaning of the points depends on the use case.
+    - Layout:
+        "ENV " Chunk
+        {
+            [Chunk Header];
+            
+            I16;
+                - Name: ValuesPerPoint
+                - The number of values in each point of the envelope. That is, the length of each inner array of "PointArray".
+                - Overwhelmingly observed as 2. Observed to be 1 when "PointArray" field is empty.
+
+            I16;
+                - Placeholder Name: I16_10
+                - [Undiscovered Use]
+                - Observed as 386 for envelopes with spectral phase points, and 150 for envelopes with differential spectral data.
+            
+            I32;
+                - Name: PointArraySize
+                - The total number of bytes in "PointArray". (sizeof(F32) * ValuesPerPoint * point array length).
+
+            F32;
+                - Name: "ValueLowerBound"
+                - The lower boundary for values within a point in the envelope.
+            
+            F32;
+                - Name: "ValueUpperBound"
+                - The upper boundary for values within a point in the envelope.
+
+            UNKNOWN 32;
+                - Placeholder Name: UNKNOWN32_22
+                - Observed as all zero bits.
+
+            FARRAY<FARRAY<F32>[ValuesPerPoint]>[ ( PointArraySize / ( sizeof( F32 ) * ValuesPerPoint ) ) ];
+                - Name: PointArray
+                - Two-dimensional array of F32 values. Each inner array represents a point in the outer array. No jagged arrays observed.
+                - Observed range for the length of the outer array is [0, 736]. When outer array length is 0, "ValuesPerPoint" is 1 by convention.
+        }
+
+"SND "
+    - Type: "SND "
+    - Full Name: Sound
+    - Description: The PCM data for an audio group. Always uses 16-bit signed integer samples, which is typical for CD Audio WAV format.
+    - Layout:
+        "SND " Chunk
+        {
+            [Chunk Header];
+
+            I32;
+                - Name: SampleRate
+                - The number of samples per second for the PCM audio.
+                - Observed as 44100 (CD Audio).
+
+            I16;
+                - Name: ChannelCount
+                - The channel count for the PCM audio.
+                - Observed as 1 (Mono).
+
+            LPARRAY<I16>;
+                - Name: Samples
+                - The samples for the audio. Always uses 16-bit integers.
+        }
+
+"FRM2"
+    - Type: "FRM2"
+    - Full Name: Frame (version 2)
+    - Description: The data for one spectral modeling synthesis (SMS) frame. A DDB audio group begins with a sequence of these frames, each corresponding to a section of the audio clip contained in the following "SND " block. The contents within the frame can vary significantly, so a 64-bit field is used as a mask describing which components are present.
+    - Layout:
+        "FRM2" Chunk
+        {
+            [Chunk Header];
+
+            I32;
+                - [Undiscovered Use]
+                - Observed as 1.
+
+            F64;
+                - Name: LocalFrameRegionTime
+                - The fractional number of seconds into the current frame region that this frame begins.
+
+            I64;
+                - Name: ComponentMask
+                - A 64-bit field whose bits correspond to components that may be present in this chunk, or in one case, an indicator that certain values are to be treated differently. Set bits indicate the component is present. Bits are counted from least (bit 0) to most (bit 63) significant. Since the field is little-endian, bit significance should be counted after interpreting as an I64.
+
+            // Components after this point may or may not be present, depending on the value above.
+
+            // Bits 0, 1, and 2.
+            [Harmonic Spectrum];
+
+            // Bit 9.
+            [Fundamental Frequency or Pitch];
+
+            // Bits 7, 13, 17, 18, and 19.
+            [Growl-Related Component];
+
+            // Bit 37, or (Bits 7, 13, 17, 18, and 19). The combination of both cases has not been observed.
+            [Spectral Phase Envelope];
+
+            // Bit 21.
+            [Vocal Tract Resonances];
+
+            // Bit 22.
+            [Source Filter];
+
+            // Bit 23, or (Bits 7, 13, 17, 18, and 19). The combination of both cases has not been observed.
+            [Differential Spectral Envelope];
+
+            Harmonic Spectrum
+            {
+                I32;
+                    - Name: ArrayLength
+                    - The length of each of the following three arrays.
+                    - Observed as 350.
+                
+                FARRAY<F32>[ArrayLength];
+                    - Name: Frequencies
+                    - A sequence defining the frequency portion of the deterministic line spectra for this frame in Hertz (Hz). Empty space is filled with 0.
+                
+                FARRAY<F32>[ArrayLength];
+                    - Name: Amplitudes
+                    - A sequence defining the amplitude portion of the deterministic line spectra for this frame in decibels (dB). Empty space is filled with 10000.
+
+                FARRAY<F32>[ArrayLength];
+                    - Name: Phases
+                    - A sequence defining the phase portion of the deterministic line spectra for this frame in radians. Empty space is filled with 0.
+            }
+
+            Fundamental Frequency or Pitch
+            {
+                F32;
+                    - Name: FundamentalFrequencyOrPitch
+                    - For Vocaloid2, this is the musical pitch of this frame, relative to A4, given in pitch cents. For Vocaloid3+, this is the measured fundamental frequency for this frame.
+            }
+
+            Growl-Related Component
+            {
+                UNKNOWN 32;
+                    - Placeholder Name: UNKNOWN32_0
+                    - Observed as 0x001FFFFF.
+                
+                FARRAY[136];
+                    - Placeholder Name: FARRAY136_4
+                    - [Undiscovered Use]
+
+                I16;
+                    - Placeholder Name: I16_548
+                    - [Undiscovered Use]
+
+                I32;
+                    - Placeholder Name: I32_550
+                    - [Undiscovered Use]
+            }
+
+            Spectral Phase Envelope
+            {
+                ["ENV " Chunk];
+                    - Name: SpectralPhaseEnvelope
+                    - Envelope of spectral phases before time shift for this frame. Point value range is [-20000, 20000]. Points lie at harmonic-frequency positions (index * fundamental frequency) with boundary extension at 0 Hz and 22050 Hz (Nyquist).
+            }
+
+            Resonance Point
+            {
+                F64;
+                    - Name: CenterFrequency
+                F64;
+                    - Name: Amplitude
+                F64;
+                    - Name: Bandwidth
+            }
+
+            Vocal Tract Resonances
+            {
+                LPARRAY<Resonance Point>;
+                    - Name: Points
+                    - EpR formula resonance points for vocal tract resonances. Does not include the source resonances found in the "Source Filter" frame component.                
+            }
+
+            Source Filter
+            {
+                F32;
+                    - Name: Gain
+                    - The source resonance gain in decibels (dB).
+
+                F32;
+                    - Name: SlopeDepth
+                    - The source resonance slope depth in decibels (dB).
+
+                F32;
+                    - Name: Slope
+                    - The source resonance slope.
+
+                LPARRAY<Resonance Point>;
+                    - Name: Points
+                    - EpR formula resonance points for source resonance.
+                    - Observed length is 1.
+            }
+
+            Differential Spectral Envelope
+            {
+                ["ENV " Chunk];
+                    - Name: DifferentialSpectralEnvelope
+                    - Envelope of residual spectral information for this frame. Point value range is [-100, 10]. Contains 736 points at 30 Hertz (Hz) spacing from 0 Hz ~ 22050 Hz (Nyquist). The stored frequency coordinate is normalized to [0, 1].
+            }
+        }
+
+"PHG2"
+    - Type: "PHG2"
+    - Full Name: (probably) Phoneme Groups (version 2)
+    - Description: Definitions of phonemes that are present in the database and which groups they belong to.
+    - Layout:
+        "PHG2" Chunk
+        {
+            [Chunk Header];
+
+            LPARRAY<Phoneme Group>;
+                - Name: Groups
+                - All phoneme groups for the voicebank.
+
+            Phoneme Group
+            {
+                LPSTRING;
+                    - Name: Name
+                    - The human-readable name for the phoneme group, such as "Plosives" or "NasalFricatives".
+
+                LPARRAY<Phoneme Entry>;
+                    - Name: Entries
+                    - All phoneme symbols in this group and their indexes.
+
+                LPARRAY<"ENV " Chunk>;
+                    - Placeholder Name: LPARRAY_0_0_0
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as length 0. Observed with entries amongst older Vocaloid2 voicebanks.
+
+                Phoneme Entry
+                {
+                    I32;
+                        - Name: Index
+                        - The index of the phoneme amongst all phonemes in the voicebank. This is -1 for phonemes that are defined, but disabled/unused.
+                    
+                    LPSTRING;
+                        - Name: PhonemeSymbol
+                        - The human-readable symbol for the phoneme. Largely taken from X-SAMPA.
+                }
+            }
+        }
+
+"PHDC"
+    - Type: "PHDC"
+    - Full Name: (probably) Phoneme Dictionary
+    - Description: 
+    - Layout:
+        {
+            [Chunk Header];
+
+            I32;
+                - Placeholder Name: I32_0
+                - [Undiscovered Use]
+                - Observed 1, 3, and 4.
+
+            LPARRAY<Phoneme Sustainability>;
+                - Name: PhonemeSustainabilities
+                - A collection of phonemes and whether or not they can be sustained by a singer.
+
+            ["PHG2" Chunk];
+
+            LPARRAY<Phoneme Formant Reference Points>;
+                - Name: PhonemeFormantReferencePointsCollection;
+                - A collection of groupings of phonemes and their associated arrays of formant reference points.
+
+            Phoneme Sustainability
+            {
+                FSTRING[30];
+                    - Name: PhonemeSymbol
+                    - The human-readable symbol for the phoneme. Largely taken from X-SAMPA.
+
+                BOOL;
+                    - Name: HasFiniteDuration
+                    - True for all phonemes that can not naturally be sustained.
+            }
+
+            Phoneme Formant Reference Points
+            {
+                FSTRING[32];
+                    - Name: PhonemeSymbol
+                    - The human-readable symbol for the phoneme. Largely taken from X-SAMPA.
+
+                LPARRAY<Formant Reference Point>;
+                    - Formant reference points associated with the phoneme.
+                    - Observed length is 4.
+
+                Formant Reference Point
+                {
+                    F64;
+                        - Name: CenterFrequency;
+                        - Value is given in Hertz (Hz). Appears manually selected rather than measured.
+
+                    F64;
+                        - Placeholder Name: F64_8
+                        - [Undiscovered Use]
+                        - Appears to be a width or bandwidth value. Appears manually selected rather than measured.
+                }
+            }
+        }
+
+
+# DDI BLOCK TYPES
+
+"ARR "
+    - Type: "ARR "
+    - Full Name: Array
+    - Description: An array of DDI blocks with a group label.
+    - Layout:
+        "ARR " Block
+        {
+            [DDI Header];
+
+            LPARRAY<DDI block>;
+                - Name: Array
+                - An array of any type of DDI block. No mixed arrays have been observed.
+
+            LPSTRING;
+                - Name: Label
+                - Acts as a label for the array contents.
+        }
+
+"ARTp"
+    - Type: "ARTp"
+    - Full Name: (possibly) Articulation Pitch
+    - Description: Metadata for a single articulation recording.
+    - Layout:
+        "ARTp" Block
+        {
+            [DDI Header];
+
+            [Parameters];
+
+            I32;
+                - Palceholder Name: I32_54
+                - [Undiscovered Use]
+                - Observed as 2. Could be the length of an LPARRAY<"EMPT" Component>.
+
+            ["EMPT" Component];
+                - Name: SndComponent
+                - "SndComponent.Label" is always "SND". For Vocaloid2, "SndComponent.I32_12" is the size of the associated "SND " chunk in the DDB (in bytes). For Vocaloid3+ "SndComponent.I32_12" is observed as 0.
+
+            ["EMPT" Component];
+                - Name: EprComponent
+                - "EprComponent.Label" is always "EpR". For Vocaloid3+ "EprComponent.I32_12" is observed as 0.
+
+            // This field is present for Vocaloid2 only.
+            I32;
+                - Placeholder Name: I32_58_0_0
+                - [Undiscovered Use]
+                - Present for Vocaloid2 only.
+
+            LPARRAY<I64>;
+                - Name: FrameAddresses
+                - The addresses of the "FRM2" frames for this recording in the DDB, in order.
+
+            [PCM Component];
+
+            // This field is present for Vocaloid3+ only.
+            I64;
+                - Placeholder Name: I64_58_0_4_18
+                - Present for Vocaloid3+ only. Points to an address within the associated "SND " chunk in the DDB, which comes after "PCM Component.SamplesStartAddress", but before the end of the array.
+
+            // Tail bytes vary by version.
+
+            // This component is present for Vocaloid2 only.
+            [Vocaloid2 "ARTp" Tail];
+                - Present for Vocaloid2 only. Defines the ranges of two synthesis regions for the articulation.
+
+            // This component is present for Vocaloid3+ only.
+            [Vocaloid3 "ARTp" Tail];
+                - Present for Vocaloid3+ only. Defines the ranges of an arbitrary number of synthesis regions for the articulation. Observed 2 regions (2-phone articulations), or 4 regions (3-phone articulations).
+
+            LPSTRING;
+                - Name: Label
+                - Observed as "default".
+
+            Parameters
+            {
+                F64;
+                    - Name: RecordingDuration
+                
+                I16;
+                    - Placeholder Name: I16_8
+                    - [Undiscovered Use]
+                    - Observed 1.
+
+                F32;
+                    - Placeholder Name: F32_10
+                    - Appears to be a pitch in cents relative to A4, when provided. When not provided, this is the minimum value for F32 (C# float.MinValue). For Vocaloid5+, this appears to have been standardized as a unique value among ARTps within the same trie leaf. Appears manually selected for some voicebanks, but appears measured for others.
+                    
+                F32;
+                    - Placeholder Name: F32_14
+                    - A pitch in cents that is usually very close to "F32_10" in value. Usually appears measured more often than manually selected.
+
+                I32;
+                    - Placeholder Name: I32_18
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as 0, but not always. Not an LPARRAY length.
+
+                F32;
+                    - Placeholder Name: F32_22
+                    - [Undiscovered Use]
+                    - Observed 0.6 (within F32 precision).
+
+                F32;
+                    - Placeholder Name: F32_26
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as 90. Observed rarely as 120 and 180.
+            }
+
+            "EMPT" Component
+            {
+                I64;
+                    - Placeholder Name: I64_0
+                    - [Undiscovered Use]
+
+                FOURCC;
+                    - Name: FourCC.
+                    - Observed as "EMPT".
+
+                I64;
+                    - Placeholder Name: I64_12
+                    - For Vocaloid2, when "Label" is "SND", this is the size of the associated "SND " chunk in the DDB, in bytes. For Vocaloid3+, with any "Label" value, this is observed as 0.
+
+                LPSTRING;
+                    - Name: Label
+                    - Observed as "SND", and "EpR".
+            }
+
+            PCM Component
+            {
+                I32;
+                    - Name: SampleRate
+                    - The number of samples per second for the associated PCM audio in the DDB.
+                    - Observed as 44100 (CD Audio).
+
+                I16;
+                    - Name: ChannelCount
+                    - The channel count for the associated PCM audio in the DDB.
+                    - Observed as 1 (Mono).
+
+                I32;
+                    - SampleCount
+                    - The number of samples in the associated PCM audio in the DDB.
+
+                I64;
+                    - SamplesStartAddress
+                    - The address of the "Samples" field in the associated "SND " chunk in the DDB.
+            }
+
+            Vocaloid2 "ARTp" Tail
+            {
+                I32;
+                    - Name: Range0Start
+                    - Index of the frame in "FrameAddresses" that represents the start of the first articulation region.
+
+                I32;
+                    - Name: Range0EndInclusive
+                    - Index of the frame in "FrameAddresses" that represents the last frame of the first articulation region.
+
+                I32;
+                    - Name: Range1EndInclusive
+                    - Index of the frame in "FrameAddresses" that represents the last frame of the second articulation region. Same as (FrameAddresses length - 1).
+
+                I32;
+                    - Name: Range1Start
+                    - Index of the frame in "FrameAddresses" that represents the start of the second articulation region.
+            }
+
+            Vocaloid3+ "ARTp" Tail
+            {
+                LPARRAY<Region>;
+                    - Name: FrameRegions
+                    - The synthesis regions for the articulation. Length is always even since the regions come in pairs - a "side A" and "side B" for each pair of phonemes.
+                    - Observed lengths are 2 and 4.
+                
+                Frame Region
+                {
+                    I32;
+                        - Name: Start
+                        - Index of the frame in "Frame Addresses" that represents the start of this articulation region.
+
+                    I32;
+                        - Name: End
+                        - Index of the frame in "Frame Addresses" that represents the end (exclusive) of this articulation region.
+
+                    I32;
+                        - Name: RangeStart
+                        - Index of the frame in "Frame Addresses" that represents the start of a specific range within this articulation region. Rate of change is observed to be higher within this range, so this appears to mark a transition.
+
+                    I32;
+                        - Name: RangeEnd
+                        - Index of the frame in "Frame Addresses" that represents the end (exclusive) of a specific range within this articulation region. Rate of change is observed to be higher within this range, so this appears to makr a transition.
+                }
+            }
+        }
+
+"ARTu"
+    - Type: "ARTu"
+    - Full Name: (possibly) Articulation Unit
+    - A leaf in a trie of articulation recording metadata.
+    - Layout:
+        "ARTu" Block
+        {
+            [DDI Header];
+
+            I32;
+                - Placeholder Name: I32_24
+                - [Undiscovered Use]
+
+            I32;
+                - Placeholder Name: I32_28
+                - [Undiscovered Use]
+                - Overwhelmingly observed as 0. Rarely as 1.
+
+            I32;
+                - Placeholder Name: I32_32
+                - [Undiscovered Use]
+
+            I64;
+                - Placeholder Name: I64_36
+                - [Undiscovered Use]
+
+            LPARRAY<"ARTp" Block>;
+                - Name: Recordings
+                - The "ARTp" blocks for this phoneme sequence (sequence defined by the path in the trie). Each corresponds to a different recording of the same articulation, usually at different pitches. This array has very rarely been observed as empty.
+
+            LPSTRING;
+                - Name: PhonemeSymbol
+                - The symbol for the last phoneme in the sequence.
+        }
+
+"ART "
+    - Type: "ART "
+    - Full Name: Articulation
+    - A branch in a trie of articulation recording metadata.
+    - Layout:
+        "ART " Block
+        {
+            [DDI Header];
+
+            I32;
+                - Placeholder Name: I32_24;
+                - [Undiscovered Use]
+
+            LPARRAY<"ART " Block OR "ARTu" Block>;
+                - Name: TrieNodes
+                - List of child nodes ("ARTu" leaf blocks, or nested "ART " branch blocks) in the trie of articulation recording metadata.
+
+            LPSTRING;
+                - Name: PhonemeSymbol
+                - The symbol for the phoneme at this non-terminal location in the sequence.
+                - Phonemes in the middle of the articulated sequence (not at the start or the end) are prefixed with a "^".
+        }
+
+"STAp"
+    - Type: "STAp"
+    - Full Name: (possibly) Stationary Pitch
+    - Description: Metadata for a single stationary recording.
+    - Layout:
+        "STAp" Block
+        {
+            [DDI Header];
+
+            [Parameters];
+
+            I32;
+                - Placeholder Name: I32_54
+                - [Undiscovered Use]
+                - Observed as 0.
+            
+            I32;
+                - Palceholder Name: I32_58
+                - [Undiscovered Use]
+                - Observed as 2. Could be the length of an LPARRAY<"EMPT" Component>.
+
+            ["EMPT" Component];
+                - Name: SndComponent
+                - "SndComponent.Label" is always "SND". For Vocaloid2, "SndComponent.I32_12" is the size of the associated "SND " chunk in the DDB (in bytes). For Vocaloid3+ "SndComponent.I32_12" is observed as 0.
+
+            ["EMPT" Component];
+                - Name: EprComponent
+                - "EprComponent.Label" is always "EpR". For Vocaloid3+ "EprComponent.I32_12" is observed as 0.
+
+            I32;
+                - Name: FrameCount
+                - For Vocaloid2 this is the number of frames in the following array (duplicate information). For Vocaloid3+, this is observed as -1.
+
+            LPARRAY<I64>;
+                - Name: FrameAddresses
+                - The addresses of the "FRM2" frames for this recording in the DDB, in order.
+
+            [PCM Component];
+
+            [STAp Tail Code];
+                - Known to have a cyclic structure and restricted symbol vocabulary.
+                - Appears to be a group of values that are the result of a custom pseudo-random number generator function.
+
+            LPSTRING;
+                - Name: Label
+                - Observed as positive numeric CHARs close to and including 0. Index-like.
+
+            Parameters
+            {
+                F64;
+                    - Name: RecordingDuration
+                
+                I16;
+                    - Placeholder Name: I16_8
+                    - [Undiscovered Use]
+                    - Observed 1.
+
+                F32;
+                    - Placeholder Name: F32_10
+                    - Appears to be a pitch in cents relative to A4, when provided. When not provided, this is the minimum value for F32 (C# float.MinValue). For Vocaloid5+, this appears to have been standardized as a unique value among STAps within the same trie leaf. Appears manually selected for some voicebanks, but appears measured for others.
+                    
+                F32;
+                    - Placeholder Name: F32_14
+                    - A pitch in cents that is usually very close to "F32_10" in value. Usually appears measured more often than manually selected.
+
+                I32;
+                    - Placeholder Name: I32_18
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as 0, but not always. Not an LPARRAY length.
+
+                F32;
+                    - Placeholder Name: F32_22
+                    - [Undiscovered Use]
+                    - Observed 0.6 (within F32 precision).
+
+                F32;
+                    - Placeholder Name: F32_26
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as 90. Observed rarely as 120 and 180.
+            }
+
+            "EMPT" Component
+            {
+                I64;
+                    - Placeholder Name: I64_0
+                    - [Undiscovered Use]
+
+                FOURCC;
+                    - Name: FourCC.
+                    - Observed as "EMPT".
+
+                I64;
+                    - Placeholder Name: I64_12
+                    - For Vocaloid2, when "Label" is "SND", this is the size of the associated "SND " chunk in the DDB, in bytes. For Vocaloid3+, with any "Label" value, this is observed as 0.
+
+                LPSTRING;
+                    - Name: Label
+                    - Observed as "SND", and "EpR".
+            }
+
+            PCM Component
+            {
+                I32;
+                    - Name: SampleRate
+                    - The number of samples per second for the associated PCM audio in the DDB.
+                    - Observed as 44100 (CD Audio).
+
+                I16;
+                    - Name: ChannelCount
+                    - The channel count for the associated PCM audio in the DDB.
+                    - Observed as 1 (Mono).
+
+                I32;
+                    - SampleCount
+                    - The number of samples in the associated PCM audio in the DDB.
+
+                I64;
+                    - SamplesStartAddress
+                    - The address of the "Samples" field in the associated "SND " chunk in the DDB.
+            }
+
+            STAp Tail Code
+            {
+                I32;
+                    - Name: SymbolA
+                    - Observed range is [0, 255], as well as -1 when all fields are -1.
+
+                I32;
+                    - Name: SymbolB
+                    - Observed range is [0, 255], as well as -1 when all fields are -1.
+
+                I32;
+                    - Name: SymbolC
+                    - Observed range is [0, 255], as well as -1 when all fields are -1.
+
+                I32;
+                    - Name: SymbolD
+                    - Observed range is [0, 255], as well as -1 when all fields are -1.
+            }
+        }
+
+"STAu"
+    - Type: "STAu"
+    - Full Name: (possibly) Stationary Unit
+    - A leaf in a trie of stationary recording metadata. No stationary tries have been observed with more than one leaf or with any nested branches.
+    - Layout:
+        "STAu" Block
+        {
+            [DDI Header];
+
+            I32;
+                - Placeholder Name: I32_24
+                - [Undiscovered Use]
+                - Values appear to be index-like.
+
+            I64;
+                - Placeholder Name: I64_28
+                - [Undiscovered Use]
+                - Observed -1.
+
+            LPARRAY<"STAp" Block>;
+                - Name: Recordings
+                - The "STAp" blocks for this phoneme (defined by "PhonemeSymbol"). Each corresponds to a different recording of the same stationary phoneme, usually at different pitches. This array has very rarely been observed as empty.
+
+            LPSTRING;
+                - Name: PhonemeSymbol
+                - The symbol for the phoneme that this is a long recording of.
+        }
+
+"STA "
+    - Type: "STA "
+    - Full Name: Stationary
+    - A branch in a trie of stationary recording metadata.
+    - Layout:
+        "STA " Block
+        {
+            [DDI Header];
+
+            LPARRAY<"STA " Block OR "STAu" Block>;
+                - Name: TrieNodes
+                - List of child nodes ("STAu" leaf blocks, or nested "STA " branch blocks) in the trie of stationary recording metadata.
+
+            LPSTRING;
+                - Name: Label
+                - Observed as "normal".
+        }
+
+"VQMp"
+    - Type: "VQMp"
+    - Full Name: (possibly) Vocal Quality Manipulation
+    - Description: Metadata for a single growl recording.
+    - Layout:
+        "VQMp" Block
+        {
+            [DDI Header];
+
+            [Parameters];
+
+            I32;
+                - Placeholder Name: I32_54
+                - [Undiscovered Use]
+                - Observed as 0.
+            
+            I32;
+                - Palceholder Name: I32_58
+                - [Undiscovered Use]
+                - Observed as -1.
+
+            LPARRAY<I64>;
+                - Name: FrameAddresses
+                - The addresses of the "FRM2" frames for this recording in the DDB, in order.
+
+            [PCM Component];
+
+            UNKNOWN 64;
+                - Placeholder Name: UNKNOWN64_62_18
+                - Observed as 8 bytes of 0xFF.
+
+            LPSTRING;
+                - Name: Label
+                - Observed as "0".
+
+            Parameters
+            {
+                F64;
+                    - Name: RecordingDuration
+                
+                I16;
+                    - Placeholder Name: I16_8
+                    - [Undiscovered Use]
+                    - Observed 1.
+
+                F32;
+                    - Placeholder Name: F32_10
+                    - Appears to be a pitch in cents relative to A4, when provided. When not provided, this is the minimum value for F32 (C# float.MinValue). For Vocaloid5+, this appears to have been standardized as a unique value among STAps within the same trie leaf. Appears manually selected for some voicebanks, but appears measured for others.
+                    
+                F32;
+                    - Placeholder Name: F32_14
+                    - A pitch in cents that is usually very close to "F32_10" in value. Usually appears measured more often than manually selected.
+
+                I32;
+                    - Placeholder Name: I32_18
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as 0, but not always. Not an LPARRAY length.
+
+                F32;
+                    - Placeholder Name: F32_22
+                    - [Undiscovered Use]
+                    - Observed 0.6 (within F32 precision).
+
+                F32;
+                    - Placeholder Name: F32_26
+                    - [Undiscovered Use]
+                    - Overwhelmingly observed as 90. Observed rarely as 120 and 180.
+            }
+
+            PCM Component
+            {
+                I32;
+                    - Name: SampleRate
+                    - The number of samples per second for the associated PCM audio in the DDB.
+                    - Observed as 44100 (CD Audio).
+
+                I16;
+                    - Name: ChannelCount
+                    - The channel count for the associated PCM audio in the DDB.
+                    - Observed as 1 (Mono).
+
+                I32;
+                    - SampleCount
+                    - The number of samples in the associated PCM audio in the DDB.
+
+                I64;
+                    - SamplesStartAddress
+                    - The address of the "Samples" field in the associated "SND " chunk in the DDB.
+            }
+        }
+
+"VQMu"
+    - Type: "VQMu"
+    - Full Name: (possibly) Vocal Quality Manipulation Unit
+    - A leaf in a trie of growl recording metadata. No growl tries have been observed with more than one leaf or with any nested branches.
+    - Layout:
+        "VQMu" Block
+        {
+            [DDI Header];
+
+            I32;
+                - Placeholder Name: I32_24
+                - [Undiscovered Use]
+
+            LPARRAY<"VQMp" Block>;
+                - Name: Recordings
+                - The "VQMp" blocks for this type of VQM (defined by "Label"). Observed length is 1.
+
+            LPSTRING;
+                - Name: Label
+                - Observed as "GROWL".
+        }
+
+"VQM "
+    - Type: "VQM "
+    - Full Name: (possibly) Vocal Quality Manipulation
+    - A branch in a trie of growl recording metadata.
+    - Layout:
+        "VQM " Block
+        {
+            [DDI Header];
+
+            LPARRAY<"VQM " Block OR "VQMu" Block>;
+                - Name: TrieNodes
+                - List of child nodes ("VQMu" leaf blocks, or nested "VQM " branch blocks) in the trie of stationary recording metadata.
+
+            LPSTRING;
+                - Name: Label
+                - Observed as "vqm".
+        }
+
+"DBV "
+    - Type: "DBV "
+    - Full Name: Database Voice
+    - Contains the articulation, stationary, and VQM (for Vocaloid4+) recording tries.
+    - Layout:
+        "DBV " Block
+        {
+            [DDI Header];
+
+            I32;
+                - Palceholder Name: I32_24
+                - Most likely the number of top-level blocks that follow, before "Label".
+                - Observed as 4, and 5.
+
+            // The order for the next four "ARR " blocks is not guaranteed. A binary reader can parse four "ARR " blocks and discriminate the contents by their "Label" fields.
+
+            ["ARR " Block];
+                - Name: Articulations
+                - Placement in block varies. See comment above.
+                - The articulation recording tries. All blocks within "Articulations.Array" are "ART " blocks. "Articulations.Label" is "articulation".
+
+            ["ARR " Block];
+                - Name: Stationaries
+                - Placement in block varies. See comment above.
+                - The stationary recording tries. All blocks within "Stationaries.Array" are "STA " blocks. "Stationaries.Label" is "stationary".
+                - No stationary recording tries have been observed with more than one leaf or with any nested branches.
+
+            ["ARR " Block];
+                - Name: Notes
+                - Placement in block varies. See comment above.
+                - A two-dimensional "ARR " block. All blocks within "Notes.Array" are nested "ARR " blocks. Observed length is 3. "Notes.Label" is "note".
+                - First element: Block type for "Array" field is unknown. "Label" is "notetonote". Observed length is 0.
+                - Second element: Block type for "Array" field is unknown. "Label" is "attack". Observed length is 0.
+                - Third element: Block type for "Array" field is unknown. "Label" is "release". Observed length is 0.
+
+            ["ARR " Block];
+                - Name: Vibratos
+                - Placement in block varies. See comment above.
+                - Block type for "Vibratos.Array" field is unknown. "Vibratos.Label" is "vibrato". Observed length is 0.
+
+            // This field is present for Vocaloid4+ only.
+            ["VQM " Block];
+                - Name: VqmTrie
+                - The VQM trie. Not contained in an "ARR " block like the other recording tries.
+                - No VQM recording tries have been observed with more than one leaf or with any nested branches.
+
+            LPSTRING;
+                - Name: Label
+                - The label for the "DBV " block. Observed as "voice".
+        }
+
+"TMM "
+    - Type: "TMM "
+    - Full Name: (guesswork) Timbre [something, something]
+    - Indexed grouping of an array of parameters with a phoneme.
+    - Layout:
+        "TMM " Block
+        {
+            [DDI header];
+
+            I32;
+                - Name: Index
+                - The index of the "TMM " block amongst all "TMM " blocks in the voicebank.
+
+            LPARRAY<"ARR " Block>;
+                - Name: Arrays
+                - An array of "ARR " blocks. Observed length is 3.
+                - First element: Block type for "Array" field is unknown. "Label" is "pitch". Observed length is 0.
+                - Second element: Block type for "Array" field is unknown. "Label" is "dynamics". Observed length is 0.
+                - Third element: Block type for "Array" field is unknown. "Label" is "opening". Observed length is 0.
+
+            LPSTRING;
+                - Name: PhonemeSymbol
+                - The human-readable symbol for the phoneme. Largely taken from X-SAMPA.
+        }
+
+"TDB "
+    - Type: "TDB "
+    - Full Name: Timbre Database
+    - Labeled array of "TMM " blocks.
+    - Layout:
+        "TMM " Block
+        {
+            [DDI Header];
+
+            LPARRAY<"TMM " Block>;
+                - Name: Tmms
+                - A "TMM " block for each phoneme in the voicebank (unproven).
+
+            LPSTRING;
+                - Name: Label
+                - The label for the "TDB " block. Observed as "timbre".
+        }
+
+"DBSe"
+    - Type: "DBSe"
+    - Full Name: (possibly) Database Sections
+    - Top-level block for Vocaloid3+. The DDI for Vocaloid3+ voicebanks contains one of these blocks and no other data.
+    - Layout:
+        "DBSe" Block
+        {
+            [DDI Header];
+
+            I32;
+                - Placeholder Name: I32_24
+                - [Undiscovered Use]
+                - Observed as 3.
+
+            ["PHDC" block];
+
+            FSTRING[260];
+                - Name: HexString
+                - A sequence of 32 CHARs which are hexadecimal digits ("a" ~ "f" always lower-case). The remaining 228 CHARs are empty.
+
+            I32;
+                - Placeholder Name: I32_28_260
+                - Possibly the length of an LPARRAY<"DBV " block OR "TDB " Block> encompassing the following sub-database blocks.
+                - Observed as 2.
+
+            // The order for the next two DDI blocks is not guaranteed. A binary reader can branch on the FOURCC field starting at +8 from its current position.
+
+            ["DBV " Block];
+                - Placement in block varies. See comment above.
+
+            ["TDB " Block];
+                - Placement in block varies. See comment above.
+        }
+
+"ARR" + n
+    - Type: "ARR" followed by either " " or a decimal digit CHAR
+    - Observed Subtypes: "ARR ", "ARR2", "ARR4"
+    - Full Name: (probably) Array (version n)
+    - Top-level block for Vocaloid2. The DDI for Vocaloid2 voicebanks begins with one of these blocks. Acts as a DDI block wrapper around the "PHDC" chunk.
+    - No obvious relation to the other "ARR " block type.
+    - Non-normative Observations:
+        - "ARR " is used by Sweet Ann
+            - Has no top-level "HexString" field.
+            - "PHDC" block "PhonemeFormantReferencePointsCollection" field is empty.
+        - "ARR2" is used by Prima
+            - Top-level "HexString" field is present.
+            - "PHDC" block "PhonemeFormantReferencePointsCollection" field is empty.
+        - "ARR4" is used by Big Al and Tonio
+            - Top-level "HexString" field is present.
+            - "PHDC" block "PhonemeFormantReferencePointsCollection" field has entries.
+    - Layout:
+        "ARR" + n Block
+        {
+            [DDI Header];
+
+            ["PHDC" Chunk];
+        }
+
+Vocaloid2 Top-Level Container
+    - Type: None
+    - Vocaloid2 DDI files do not use a singular block to contain all parts (the way Vocaloid3+ uses the "DBSe" block). This is a list of the contents at the top level of a Vocaloid2 DDI.
+    - Layout:
+        Vocaloid2 Top-Level Container
+        {
+            ["ARR" + n Block];
+
+            // This field is not present for some voicebanks. The FOURCC in the Header for the DDI block above may acts as the discriminator.
+            FSTRING[260];
+                - Name: HexString
+                - A sequence of 32 CHARs which are hexadecimal digits ("a" ~ "f" always lower-case). The remaining 228 CHARs are empty.
+
+            I32;
+                - Placeholder Name: I32_28_260
+                - Possibly the length of an LPARRAY<"DBV " block OR "TDB " Block> encompassing the following sub-database blocks.
+                - Observed as 2.
+
+            // The order for the next two DDI blocks is not guaranteed. A binary reader can branch on the FOURCC field starting at +8 from its current position.
+
+            ["DBV " Block];
+                - Placement in block varies. See comment above.
+
+            ["TDB " Block];
+                - Placement in block varies. See comment above.
+        }
