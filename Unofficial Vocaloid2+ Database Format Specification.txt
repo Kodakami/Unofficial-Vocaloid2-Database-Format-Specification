@@ -20,7 +20,7 @@ Statement of Intent:
 
 UNKNOWN n (unknown value type, "n" bits):
     C# Equivalent: byte[n]
-    An range of the provided length with an unidentified type. This usually exists because a range of bytes has only been observed with ambiguous bit patterns and no use-case has been identified.
+    A range of the provided length with an unidentified type. This usually exists because a range of bytes has only been observed with ambiguous bit patterns and no use-case has been identified.
 
 I16 (integer, 16-bit):
     C# Equivalent: short
@@ -244,6 +244,7 @@ LPARRAY<T> (array of type "T"):
 
             // Bit 21.
             [Vocal Tract Resonances];
+                - Rarely, this component can be present but empty.
 
             // Bit 22.
             [Source Filter];
